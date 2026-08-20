@@ -6,7 +6,7 @@ janela= Window(800,600,)
 janela.set_title("Meu primeiro pong")
 
 #configurações da bolinha
-bolinha = Sprite("bolinha.png")
+bolinha = Sprite("bolinha.png") #s
 bolinha.x = (janela.width / 2) - (bolinha.width / 2) #posição vertical da bola
 bolinha.y = (janela.height / 2) - (bolinha.height / 2) #posição horizontal da bola
 
