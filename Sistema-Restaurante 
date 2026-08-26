@@ -1,0 +1,934 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import sqlite3
+import json
+import os
+import platform
+from datetime import datetime
+import win32print
+from PIL import Image, ImageTk
+
+# =========================
+# CONFIGURAÇÃO DE PASTAS DE BASE
+# =========================
+home_dir = os.path.expanduser("~")
+desktop_dir = os.path.join(home_dir, "Desktop")
+
+if not os.path.exists(desktop_dir):
+    desktop_dir = os.path.join(home_dir, "Área de Trabalho")
+
+pasta_principal = os.path.join(desktop_dir, "Dados_Restaurante")
+os.makedirs(pasta_principal, exist_ok=True)
+
+# =========================
+# BANCO DE DADOS
+# =========================
+conn = sqlite3.connect("restaurante.db")
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS cardapio (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome TEXT UNIQUE,
+    preco REAL,
+    categoria TEXT DEFAULT 'Geral'
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS pedidos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente TEXT,
+    tipo TEXT,
+    itens TEXT,
+    total REAL,
+    pagamento TEXT,
+    status TEXT
+)
+""")
+
+tabelas_updates = [
+    ("pedidos", "status_pagamento", "TEXT DEFAULT 'PAGO'"),
+    ("pedidos", "expediente", "TEXT"),
+    ("cardapio", "categoria", "TEXT DEFAULT 'Geral'")
+]
+
+for tabela_nome, coluna, definicao in tabelas_updates:
+    try:
+        cursor.execute(f"ALTER TABLE {tabela_nome} ADD COLUMN {coluna} {definicao}")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+conn.commit()
+
+# =========================
+# ESTADO GLOBAL
+# =========================
+pedido_atual = []
+mapeamento_cardapio = {} 
+expediente_ativo = None  
+pasta_pedidos_atual = None
+pasta_comandas_atual = None
+categoria_selecionada = "Todos" 
+
+# =========================
+# FUNÇÕES DE EXPEDIENTE
+# =========================
+def iniciar_expediente():
+    global expediente_ativo, pasta_pedidos_atual, pasta_comandas_atual
+    if expediente_ativo:
+        messagebox.showwarning("Aviso", f"O expediente do dia {expediente_ativo} já está ativo!")
+        return
+    
+    data_abertura = datetime.now().strftime("%d-%m-%Y")
+    expediente_ativo = data_abertura
+    
+    pasta_dia = os.path.join(pasta_principal, f"Expediente_{data_abertura}")
+    pasta_pedidos_atual = os.path.join(pasta_dia, "pedidos_txt")
+    pasta_comandas_atual = os.path.join(pasta_dia, "comandas")
+    
+    os.makedirs(pasta_pedidos_atual, exist_ok=True)
+    os.makedirs(pasta_comandas_atual, exist_ok=True)
+    
+    lbl_expediente.config(text=f"● EXPEDIENTE ATIVO ({data_abertura})", fg="#198754")
+    carregar_pedidos()
+    messagebox.showinfo("Expediente Iniciado", f"Turno iniciado com sucesso para o dia: {data_abertura}")
+
+def enviar_relatorio_fechamento_caixa():
+    global expediente_ativo, pasta_pedidos_atual, pasta_comandas_atual
+    if not expediente_ativo:
+        messagebox.showwarning("Aviso", "Não há nenhum expediente ativo para encerrar!")
+        return
+    
+    cursor.execute("SELECT total, pagamento, tipo FROM pedidos WHERE expediente = ?", (expediente_ativo,))
+    pedidos_dia = cursor.fetchall()
+    
+    if not pedidos_dia:
+        messagebox.showinfo("Fechamento", f"Expediente {expediente_ativo} encerrado sem movimentações.")
+        expediente_ativo = None
+        lbl_expediente.config(text="● EXPEDIENTE FECHADO", fg="#dc3545")
+        carregar_pedidos()
+        return
+    
+    total_geral = 0.0
+    qtd_total = len(pedidos_dia)
+    valores_por_pagamento = {}
+    qtd_por_pagamento = {}
+    qtd_por_tipo = {"Mesa": 0, "Viagem": 0, "Balcão": 0}
+    
+    for total, pagamento, tipo in pedidos_dia:
+        total_geral += total
+        valores_por_pagamento[pagamento] = valores_por_pagamento.get(pagamento, 0.0) + total
+        qtd_por_pagamento[pagamento] = qtd_por_pagamento.get(pagamento, 0) + 1
+        
+        if tipo.startswith("Mesa"): qtd_por_tipo["Mesa"] += 1
+        elif tipo == "Viagem": qtd_por_tipo["Viagem"] += 1
+        elif tipo == "Balcão": qtd_por_tipo["Balcão"] += 1
+        
+    texto_relatorio = f"=== FECHAMENTO DE CAIXA INDIVIDUAL ===\n"
+    texto_relatorio += f"Movimento: {expediente_ativo}\n"
+    texto_relatorio += f"Fechamento: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}\n"
+    texto_relatorio += f"----------------------------------------\n"
+    texto_relatorio += f"Qtd. Total de Pedidos: {qtd_total}\n"
+    texto_relatorio += f"Faturamento Bruto: R$ {total_geral:.2f}\n"
+    texto_relatorio += f"----------------------------------------\n"
+    texto_relatorio += f"RESUMO DE ATENDIMENTOS:\n"
+    texto_relatorio += f"• Mesa: {qtd_por_tipo['Mesa']} pedido(s)\n"
+    texto_relatorio += f"• Viagem: {qtd_por_tipo['Viagem']} pedido(s)\n"
+    texto_relatorio += f"• Balcão: {qtd_por_tipo['Balcão']} pedido(s)\n"
+    texto_relatorio += f"----------------------------------------\n"
+    texto_relatorio += f"FALHAS E RECEBIMENTOS:\n\n"
+    
+    for forma in valores_por_pagamento.keys():
+        texto_relatorio += f"• {forma}:\n"
+        texto_relatorio += f"  Quantidade: {qtd_por_pagamento[forma]} pedido(s)\n"
+        texto_relatorio += f"  Total: R$ {valores_por_pagamento[forma]:.2f}\n\n"
+        
+    pasta_dia = os.path.dirname(pasta_pedidos_atual)
+    caminho_fechamento = os.path.join(pasta_dia, "resumo_fechamento_caixa.txt")
+    with open(caminho_fechamento, "w", encoding="utf-8") as f:
+        f.write(texto_relatorio)
+        
+    messagebox.showinfo("Relatório de Fechamento de Caixa", texto_relatorio)
+    
+    expediente_ativo = None
+    pasta_pedidos_atual = None
+    pasta_comandas_atual = None
+    lbl_expediente.config(text="● EXPEDIENTE FECHADO", fg="#dc3545")
+    carregar_pedidos()
+
+# =========================
+# FUNÇÕES DE ATENDIMENTO & FILTROS
+# =========================
+def carregar_cardapio():
+    cursor.execute("SELECT id, nome, preco, categoria FROM cardapio ORDER BY nome")
+    return cursor.fetchall()
+
+def on_categoria_selecionada(event):
+    global categoria_selecionada
+    sel = lista_categorias.curselection()
+    if not sel: return
+    
+    item = lista_categorias.get(sel[0])
+    if item == "✨ Todos os Itens":
+        categoria_selecionada = "Todos"
+    else:
+        categoria_selecionada = item.replace("📁 ", "")
+        
+    filtrar_cardapio()
+
+def atualizar_lista_categorias():
+    lista_categorias.delete(0, tk.END)
+    lista_categorias.insert(tk.END, "✨ Todos os Itens")
+    
+    cursor.execute("SELECT DISTINCT categoria FROM cardapio WHERE categoria IS NOT NULL AND categoria != '' ORDER BY categoria")
+    categorias_banco = [c[0] for c in cursor.fetchall()]
+    
+    for cat in categorias_banco:
+        lista_categorias.insert(tk.END, f"📁 {cat}")
+    
+    lista_categorias.selection_set(0)
+
+def filtrar_cardapio(event=None):
+    termo_busca = entry_busca_cardapio.get().lower().strip()
+    lista_cardapio.delete(0, tk.END)
+    mapeamento_cardapio.clear()
+    
+    produtos_do_banco = carregar_cardapio()
+    idx_visivel = 0
+    
+    for item in produtos_do_banco:
+        id_prod, nome_prod, preco_prod, cat_prod = item
+        
+        match_categoria = (categoria_selecionada == "Todos") or (cat_prod.lower() == categoria_selecionada.lower())
+        match_busca = termo_busca in nome_prod.lower() or "🔍" in termo_busca
+        
+        if "🔍" in entry_busca_cardapio.get():
+            match_busca = True
+
+        if match_categoria and match_busca:
+            lista_cardapio.insert(tk.END, f" {nome_prod}  •  R$ {preco_prod:.2f}")
+            mapeamento_cardapio[idx_visivel] = {"id": id_prod, "nome": nome_prod, "preco": preco_prod}
+            idx_visivel += 1
+
+def atualizar_cardapio():
+    entry_busca_cardapio.delete(0, tk.END)
+    atualizar_lista_categorias()
+    filtrar_cardapio()
+
+def abrir_editor_cardapio():
+    janela_edit = tk.Toplevel()
+    janela_edit.title("Gerenciador de Itens do Cardápio")
+    janela_edit.geometry("480x660")
+    janela_edit.configure(bg="#f8f9fa")
+    janela_edit.grab_set()
+
+    try:
+        if hasattr(janela, 'img_icon_ref'):
+            janela_edit.iconphoto(False, janela.img_icon_ref)
+    except:
+        pass
+
+    frame_list = tk.Frame(janela_edit, bg="#f8f9fa")
+    frame_list.pack(pady=10, fill="both", expand=True, padx=15)
+
+    text_list_font = ("Arial", 10)
+    lista = tk.Listbox(frame_list, font=text_list_font, bg="white", bd=1, relief="solid")
+    lista.pack(side="left", fill="both", expand=True)
+    
+    scroll = ttk.Scrollbar(frame_list, orient="vertical", command=lista.yview)
+    scroll.pack(side="right", fill="y")
+    lista.config(yscrollcommand=scroll.set)
+
+    id_item_selecionado = [""]
+
+    def carregar():
+        lista.delete(0, tk.END)
+        cursor.execute("SELECT id, nome, preco, categoria FROM cardapio ORDER BY categoria, nome")
+        for i in cursor.fetchall():
+            lista.insert(tk.END, f" ID: {i[0]} | [{i[3]}] {i[1]} - R$ {i[2]:.2f}")
+
+    def ao_selecionar_item(event):
+        sel = lista.curselection()
+        if not sel: return
+        texto_item = lista.get(sel[0])
+        
+        id_extraido = texto_item.split("|")[0].replace("ID:", "").strip()
+        id_item_selecionado[0] = id_extraido
+        
+        cursor.execute("SELECT nome, preco, categoria FROM cardapio WHERE id=?", (id_extraido,))
+        resultado = cursor.fetchone()
+        if resultado:
+            entry_nome.delete(0, tk.END)
+            entry_nome.insert(0, resultado[0])
+            
+            entry_preco.delete(0, tk.END)
+            entry_preco.insert(0, f"{resultado[1]:.2f}".replace(".", ","))
+            
+            entry_cat.delete(0, tk.END)
+            entry_cat.insert(0, resultado[2])
+
+    lista.bind("<<ListboxSelect>>", ao_selecionar_item)
+
+    def adicionar():
+        try:
+            nome = entry_nome.get().strip()
+            preco_str = entry_preco.get().strip().replace(",", ".")
+            preco = float(preco_str)
+            cat = entry_cat.get().strip() or "Geral"
+            
+            if not nome or preco <= 0: raise ValueError
+            
+            cursor.execute("INSERT INTO cardapio (nome, preco, categoria) VALUES (?, ?, ?)", (nome, preco, cat))
+            conn.commit()
+            carregar()
+            atualizar_cardapio()
+            
+            entry_nome.delete(0, tk.END)
+            entry_preco.delete(0, tk.END)
+            entry_cat.delete(0, tk.END)
+            id_item_selecionado[0] = ""
+        except ValueError:
+            messagebox.showerror("Erro", "Insira um nome válido e preço maior que zero.")
+        except sqlite3.IntegrityError:
+            messagebox.showerror("Erro", "Este produto já está cadastrado!")
+
+    def salvar_edicao():
+        id_atual = id_item_selecionado[0]
+        if not id_atual:
+            messagebox.showwarning("Aviso", "Selecione um item da lista acima primeiro para editar!")
+            return
+            
+        try:
+            nome = entry_nome.get().strip()
+            preco_str = entry_preco.get().strip().replace(",", ".")
+            preco = float(preco_str)
+            cat = entry_cat.get().strip() or "Geral"
+            
+            if not nome or preco <= 0: raise ValueError
+            
+            cursor.execute("UPDATE cardapio SET nome=?, preco=?, categoria=? WHERE id=?", (nome, preco, cat, id_atual))
+            conn.commit()
+            
+            messagebox.showinfo("Sucesso", "Item atualizado com sucesso!")
+            carregar()
+            atualizar_cardapio()
+            
+            entry_nome.delete(0, tk.END)
+            entry_preco.delete(0, tk.END)
+            entry_cat.delete(0, tk.END)
+            id_item_selecionado[0] = ""
+        except ValueError:
+            messagebox.showerror("Erro", "Insira um nome válido e preço maior que zero.")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao atualizar: {e}")
+
+    def remover():
+        sel = lista.curselection()
+        if not sel: return
+        item = lista.get(sel[0])
+        id_item = item.split("|")[0].replace("ID:", "").strip()
+        if messagebox.askyesno("Confirmar", "Deseja realmente excluir este item?"):
+            cursor.execute("DELETE FROM cardapio WHERE id=?", (id_item,))
+            conn.commit()
+            carregar()
+            atualizar_cardapio()
+            
+            entry_nome.delete(0, tk.END)
+            entry_preco.delete(0, tk.END)
+            entry_cat.delete(0, tk.END)
+            id_item_selecionado[0] = ""
+
+    frame_inputs = tk.Frame(janela_edit, bg="#f8f9fa")
+    frame_inputs.pack(fill="x", padx=15, pady=5)
+
+    tk.Label(frame_inputs, text="Nome do Produto:", bg="#f8f9fa", font=("Arial", 9, "bold")).pack(anchor="w")
+    entry_nome = ttk.Entry(frame_inputs)
+    entry_nome.pack(fill="x", pady=2)
+
+    tk.Label(frame_inputs, text="Preço de Venda (R$):", bg="#f8f9fa", font=("Arial", 9, "bold")).pack(anchor="w")
+    entry_preco = ttk.Entry(frame_inputs)
+    entry_preco.pack(fill="x", pady=2)
+
+    tk.Label(frame_inputs, text="Categoria do Item:", bg="#f8f9fa", font=("Arial", 9, "bold")).pack(anchor="w")
+    entry_cat = ttk.Entry(frame_inputs)
+    entry_cat.pack(fill="x", pady=2)
+
+    tk.Button(janela_edit, text="➕ Adicionar Novo Item", command=adicionar, bg="#198754", fg="white", font=("Arial", 10, "bold"), height=2, bd=0).pack(pady=4, fill="x", padx=15)
+    tk.Button(janela_edit, text="💾 Salvar Alterações do Item Selecionado", command=salvar_edicao, bg="#0d6efd", fg="white", font=("Arial", 10, "bold"), height=2, bd=0).pack(pady=4, fill="x", padx=15)
+    tk.Button(janela_edit, text="❌ Remover Item Selecionado", command=remover, bg="#dc3545", fg="white", font=("Arial", 9), bd=0).pack(pady=4, fill="x", padx=15)
+    
+    carregar()
+
+def adicionar_item():
+    sel = lista_cardapio.curselection()
+    if not sel: return
+    produto = mapeamento_cardapio[sel[0]]
+    pedido_atual.append({
+        "nome": produto["nome"],
+        "preco": produto["preco"],
+        "obs": entry_obs.get().strip()
+    })
+    entry_obs.delete(0, tk.END) 
+    atualizar_pedido()
+
+def atualizar_pedido():
+    lista_pedido.delete(0, tk.END)
+    total = 0
+    for i in pedido_atual:
+        texto = f"  {i['nome']}"
+        if i["obs"]: texto += f" ({i['obs']})"
+        lista_pedido.insert(tk.END, f"{texto:<40} R$ {i['preco']:.2f}")
+        total += i["preco"]
+    label_total.config(text=f"Total Atual: R$ {total:.2f}")
+
+def remover_item():
+    sel = lista_pedido.curselection()
+    if not sel: return
+    pedido_atual.pop(sel[0])
+    atualizar_pedido()
+
+def registrar_pedido(total, status_entrega, status_fin, forma_pagamento):
+    cliente = entry_cliente.get().strip() or "Consumidor Final"
+    tipo_atendimento = combo_tipo.get()
+    
+    cursor.execute("""
+        INSERT INTO pedidos (cliente, tipo, itens, total, pagamento, status, status_pagamento, expediente)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        cliente,
+        tipo_atendimento,
+        json.dumps(pedido_atual, ensure_ascii=False),
+        total,
+        forma_pagamento,
+        status_entrega,
+        status_fin,
+        expediente_ativo  
+    ))
+    conn.commit()
+    id_pedido = cursor.lastrowid
+    salvar_arquivo_pedido_txt(id_pedido, cliente, tipo_atendimento, total)
+
+def salvar_arquivo_pedido_txt(id_pedido, cliente, tipo, total):
+    nome_arquivo = f"pedido_{id_pedido}_{cliente.replace(' ', '_')}.txt"
+    caminho_completo = os.path.join(pasta_pedidos_atual, nome_arquivo)
+    
+    texto = f"=== COMPROVANTE DE PEDIDO ENVIADO ===\n"
+    texto += f"Código Interno: {id_pedido}\n"
+    texto += f"Movimento Ref: {expediente_ativo}\n"
+    texto += f"Atendente/Cliente: {cliente}\n"
+    texto += f"Destino Faturamento: {tipo}\n"
+    texto += f"--------------------------------------\n"
+    texto += f"ITENS PROCESSADOS:\n"
+    for i in pedido_atual:
+        obs = f" ({i['obs']})" if i['obs'] else ""
+        texto += f" - {i['nome']}{obs:<30} : R$ {i['preco']:.2f}\n"
+    texto += f"--------------------------------------\n"
+    texto += f"VALOR TOTAL: R$ {total:.2f}\n"
+    
+    with open(caminho_completo, "w", encoding="utf-8") as f:
+        f.write(texto)
+
+# ==========================================
+# JANELA POPUP DE PAGAMENTO (CARRINHO)
+# ==========================================
+def abrir_popup_pagamento():
+    if not expediente_ativo:
+        messagebox.showerror("Erro de Turno", "É obrigatório INICIAR O EXPEDIENTE antes de lançar vendas!")
+        return
+    if not pedido_atual:
+        messagebox.showwarning("Carrinho Vazio", "Adicione pelo menos um item ao carrinho antes de fechar.")
+        return
+
+    total_venda = sum(i["preco"] for i in pedido_atual)
+    
+    popup = tk.Toplevel()
+    popup.title("Finalização de Venda / Caixa")
+    popup.geometry("400x450")
+    popup.configure(bg="#ffffff")
+    popup.grab_set()
+    popup.resizable(False, False)
+
+    lbl_v = tk.Label(popup, text=f"TOTAL A PAGAR\nR$ {total_venda:.2f}", font=("Arial", 18, "bold"), bg="#f8f9fa", fg="#198754", pady=15)
+    lbl_v.pack(fill="x")
+
+    frame_corpo = tk.Frame(popup, bg="#ffffff", padx=20, pady=10)
+    frame_corpo.pack(fill="both", expand=True)
+
+    tk.Label(frame_corpo, text="Escolha o Método de Pagamento:", font=("Arial", 10, "bold"), bg="#ffffff", fg="#212529").pack(anchor="w", pady=5)
+    
+    combo_pag = ttk.Combobox(frame_corpo, values=["Pix", "Cartão de Crédito", "Cartão de Débito", "Dinheiro"], state="readonly", font=("Arial", 11))
+    combo_pag.pack(fill="x", pady=5)
+    combo_pag.current(0)
+
+    frame_dinheiro = tk.Frame(frame_corpo, bg="#ffffff")
+    
+    lbl_rec = tk.Label(frame_dinheiro, text="Valor Recebido (R$):", font=("Arial", 9, "bold"), bg="#ffffff")
+    lbl_rec.pack(anchor="w", pady=2)
+    
+    ent_recebido = ttk.Entry(frame_dinheiro, font=("Arial", 11))
+    ent_recebido.pack(fill="x", pady=2)
+    
+    lbl_troco = tk.Label(frame_dinheiro, text="Troco: R$ 0.00", font=("Arial", 12, "bold"), bg="#ffffff", fg="#0d6efd", pady=5)
+    lbl_troco.pack(anchor="w")
+
+    def calcular_troco_dinamico(event=None):
+        try:
+            recebido_str = ent_recebido.get().strip().replace(",", ".")
+            if not recebido_str:
+                lbl_troco.config(text="Troco: R$ 0.00", fg="#0d6efd")
+                btn_confirmar.config(state="normal")
+                return
+            
+            val_recebido = float(recebido_str)
+            if val_recebido < total_venda:
+                lbl_troco.config(text="Valor Insuficiente!", fg="#dc3545")
+                btn_confirmar.config(state="disabled")
+            else:
+                lbl_troco.config(text=f"Troco: R$ {val_recebido - total_venda:.2f}", fg="#198754")
+                btn_confirmar.config(state="normal")
+        except ValueError:
+            lbl_troco.config(text="Valor Inválido!", fg="#dc3545")
+            btn_confirmar.config(state="disabled")
+
+    ent_recebido.bind("<KeyRelease>", calcular_troco_dinamico)
+
+    def monitorar_combobox(event):
+        if combo_pag.get() == "Dinheiro":
+            frame_dinheiro.pack(fill="x", pady=10)
+            calcular_troco_dinamico()
+        else:
+            frame_dinheiro.pack_forget()
+            btn_confirmar.config(state="normal")
+
+    combo_pag.bind("<<ComboboxSelected>>", monitorar_combobox)
+
+    def acao_pagar_agora():
+        metodo = combo_pag.get()
+        if metodo == "Dinheiro":
+            try:
+                recebido = float(ent_recebido.get().strip().replace(",", "."))
+                if recebido < total_venda: return
+            except:
+                messagebox.showerror("Erro", "Insira o valor recebido corretamente.")
+                return
+        
+            registrar_pedido(total_venda, "Preparando", "PAGO", metodo)
+            limpar_pedido_sucesso()
+            popup.destroy()
+        else:
+            registrar_pedido(total_venda, "Preparando", "PAGO", metodo)
+            limpar_pedido_sucesso()
+            popup.destroy()
+
+    def acao_lancar_mesa():
+        if "Mesa" not in combo_tipo.get():
+            messagebox.showwarning("Tipo Inválido", "Apenas atendimentos direcionados a 'Mesa' podem ficar em aberto!")
+            return
+        
+        registrar_pedido(total_venda, "Preparando", "ABERTO", "Pendente")
+        limpar_pedido_sucesso()
+        popup.destroy()
+
+    btn_confirmar = tk.Button(frame_corpo, text="🟢 CONFIRMAR E PAGAR AGORA", command=acao_pagar_agora, bg="#198754", fg="white", font=("Arial", 10, "bold"), height=2, bd=0)
+    btn_confirmar.pack(fill="x", pady=10, side="top")
+
+    btn_mesa = tk.Button(frame_corpo, text="⏳ LANÇAR NA CONTA DA MESA", command=acao_lancar_mesa, bg="#ffc107", fg="#212529", font=("Arial", 10, "bold"), height=2, bd=0)
+    btn_mesa.pack(fill="x", pady=2, side="top")
+
+def limpar_pedido_sucesso():
+    pedido_atual.clear()
+    entry_cliente.delete(0, tk.END)
+    atualizar_pedido()
+    carregar_pedidos()
+
+# =======================================================
+# FECHAMENTO DE MESA COM HISTÓRICO ATUALIZADO (FIM DE CORTES)
+# =======================================================
+def fechar_comanda():
+    if not expediente_ativo: return
+    mesa = combo_tipo.get()
+    
+    cursor.execute("SELECT itens, total FROM pedidos WHERE tipo=? AND status_pagamento='ABERTO' AND expediente=?", (mesa, expediente_ativo))
+    pedidos_mesa = cursor.fetchall()
+    
+    if not pedidos_mesa:
+        messagebox.showinfo("Limpo", f"Não há contas abertas para a {mesa}.")
+        return
+
+    total_acumulado = 0.0
+    lista_itens_comanda = []
+    
+    for itens_json, total_pedido in pedidos_mesa:
+        total_acumulado += total_pedido
+        try:
+            itens_lista = json.loads(itens_json)
+            for item in itens_lista:
+                lista_itens_comanda.append((item['nome'], item.get('obs', ''), item['preco']))
+        except:
+            pass
+    
+    # Texto formatado de pré-visualização limpa para a tela do computador
+    texto_preview = f"=== LOS TEMPERADOS - CONFERENCIA ===\n"
+    texto_preview += f"Conta: {mesa}\n"
+    texto_preview += f"Data/Hora: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+    texto_preview += "--------------------------------------\n"
+    texto_preview += "ITENS CONSUMIDOS:\n"
+    for nome, obs, preco in lista_itens_comanda:
+        obs_str = f" ({obs})" if obs else ""
+        texto_preview += f" * {nome}{obs_str:<22} R$ {preco:.2f}\n"
+    texto_preview += "--------------------------------------\n"
+    texto_preview += f"TOTAL ACUMULADO: R$ {total_acumulado:.2f}\n"
+
+    popup_mesa = tk.Toplevel()
+    popup_mesa.title(f"Fechamento de Conta - {mesa}")
+    popup_mesa.geometry("460x650") 
+    popup_mesa.configure(bg="#ffffff")
+    popup_mesa.grab_set()
+
+    tk.Label(popup_mesa, text=f"DETALHES DE CONSUMO ACUMULADO - {mesa}", font=("Arial", 10, "bold"), bg="#fff3cd", fg="#856404", pady=10).pack(fill="x")
+    
+    txt_area = tk.Text(popup_mesa, font=("Courier New", 10), height=10, bd=1, relief="solid")
+    txt_area.pack(fill="both", expand=True, padx=15, pady=5)
+    txt_area.insert(tk.END, texto_preview.strip())
+    txt_area.config(state="disabled")
+
+    tk.Label(popup_mesa, text=f"TOTAL ACUMULADO: R$ {total_acumulado:.2f}", font=("Arial", 14, "bold"), bg="#ffffff", fg="#198754").pack(pady=5)
+
+    frame_p = tk.Frame(popup_mesa, bg="#ffffff", padx=20, pady=5)
+    frame_p.pack(fill="x")
+
+    tk.Label(frame_p, text="Forma de Pagamento:", font=("Arial", 9, "bold"), bg="#ffffff").pack(anchor="w")
+    c_pag = ttk.Combobox(frame_p, values=["Pix", "Cartão de Crédito", "Cartão de Débito", "Dinheiro"], state="readonly", font=("Arial", 10))
+    c_pag.pack(fill="x", pady=5)
+    c_pag.current(0)
+
+    frame_dinheiro_mesa = tk.Frame(frame_p, bg="#ffffff")
+    
+    lbl_rec_mesa = tk.Label(frame_dinheiro_mesa, text="Valor Recebido (R$):", font=("Arial", 9, "bold"), bg="#ffffff")
+    lbl_rec_mesa.pack(anchor="w", pady=2)
+    
+    ent_recebido_mesa = ttk.Entry(frame_dinheiro_mesa, font=("Arial", 10))
+    ent_recebido_mesa.pack(fill="x", pady=2)
+    
+    lbl_troco_mesa = tk.Label(frame_dinheiro_mesa, text="Troco: R$ 0.00", font=("Arial", 12, "bold"), bg="#ffffff", fg="#0d6efd", pady=5)
+    lbl_troco_mesa.pack(anchor="w")
+
+    def calcular_troco_mesa(event=None):
+        try:
+            recebido_str = ent_recebido_mesa.get().strip().replace(",", ".")
+            if not recebido_str:
+                lbl_troco_mesa.config(text="Troco: R$ 0.00", fg="#0d6efd")
+                btn_concluir.config(state="normal")
+                return
+            
+            val_recebido = float(recebido_str)
+            if val_recebido < total_acumulado:
+                lbl_troco_mesa.config(text="Valor Insuficiente!", fg="#dc3545")
+                btn_concluir.config(state="disabled")
+            else:
+                lbl_troco_mesa.config(text=f"Troco: R$ {val_recebido - total_acumulado:.2f}", fg="#198754")
+                btn_concluir.config(state="normal")
+        except ValueError:
+            lbl_troco_mesa.config(text="Valor Inválido!", fg="#dc3545")
+            btn_concluir.config(state="disabled")
+
+    ent_recebido_mesa.bind("<KeyRelease>", calcular_troco_mesa)
+
+    def monitorar_combobox_mesa(event):
+        if c_pag.get() == "Dinheiro":
+            frame_dinheiro_mesa.pack(fill="x", pady=5)
+            calcular_troco_mesa()
+        else:
+            frame_dinheiro_mesa.pack_forget()
+            btn_concluir.config(state="normal")
+
+    c_pag.bind("<<ComboboxSelected>>", monitorar_combobox_mesa)
+
+    def executing_impressao_cliente():
+        # COMANDOS ESC/POS INTERNOS DA IMPRESSORA TÉRMICA
+        FONTE_NORMAL = "\x1b\x21\x00"
+        FONTE_GRANDE = "\x1b\x21\x30"  
+        NEGRITO      = "\x1b\x21\x08"
+        CENTRALIZAR  = "\x1b\x61\x01"  
+        ESQUERDA     = "\x1b\x61\x00"
+        
+        largura_max_linha = 42 # Padrão seguro para bobinas térmicas de 80mm
+        
+        texto_termica = f"{CENTRALIZAR}{NEGRITO}=== LOS TEMPERADOS ===\nCONFERENCIA DE CONTA{FONTE_NORMAL}\n\n"
+        texto_termica += f"{ESQUERDA}{NEGRITO}Conta: {mesa}{FONTE_NORMAL}\n"
+        texto_termica += f"Data/Hora: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+        texto_termica += "------------------------------------------\n"
+        texto_termica += f"{NEGRITO}ITENS CONSUMIDOS:{FONTE_NORMAL}\n"
+        
+        for nome, obs, preco in lista_itens_comanda:
+            nome_exibir = nome
+            if obs:
+                nome_exibir += f" ({obs})"
+            
+            preco_str = f"R$ {preco:.2f}"
+            
+            # PROTEÇÃO CONTRA CORTE DE VALOR: se o nome+preço passar do limite, o preço vai para a linha seguinte alinhado à direita
+            if len(nome_exibir) + len(preco_str) + 3 <= largura_max_linha:
+                espacos = largura_max_linha - 3 - len(nome_exibir) - len(preco_str)
+                texto_termica += f" * {nome_exibir}{' ' * espacos}{preco_str}\n"
+            else:
+                texto_termica += f" * {nome_exibir}\n"
+                texto_termica += f"{' ' * (largura_max_linha - len(preco_str))}{preco_str}\n"
+        
+        texto_termica += "------------------------------------------\n"
+        # TOTAL GRANDE E CENTRALIZADO NO CUPOM
+        texto_termica += f"{CENTRALIZAR}{FONTE_GRANDE}TOTAL: R$ {total_acumulado:.2f}{FONTE_NORMAL}\n"
+        texto_termica += "\n\n\n\n\n"
+        texto_termica += "\n\n\n\n\n"
+        
+        nome_impressora = "EPSON TM-T20X Receipt"
+        try:
+            p = win32print.OpenPrinter(nome_impressora)
+            try:
+                job = win32print.StartDocPrinter(p, 1, ("Conta Cliente", None, "RAW"))
+                win32print.StartPagePrinter(p)
+                win32print.WritePrinter(p, texto_termica.encode('cp850'))
+                win32print.EndPagePrinter(p)
+                win32print.EndDocPrinter(p)
+            finally:
+                win32print.ClosePrinter(p)
+        except Exception as e:
+            messagebox.showerror("Erro de Impressão", f"Falha ao imprimir cupom: {e}")
+
+    def concluir_fechamento_mesa():
+        metodo = c_pag.get()
+        if metodo == "Dinheiro":
+            try:
+                recebido_str = ent_recebido_mesa.get().strip().replace(",", ".")
+                if recebido_str:
+                    recebido = float(recebido_str)
+                    if recebido < total_acumulado: return
+            except:
+                messagebox.showerror("Erro", "Insira o valor recebido corretamente.")
+                return
+
+        executing_impressao_cliente()
+        cursor.execute("UPDATE pedidos SET status_pagamento='PAGO', pagamento=? WHERE tipo=? AND status_pagamento='ABERTO' AND expediente=?", (metodo, mesa, expediente_ativo))
+        conn.commit()
+        carregar_pedidos()
+        popup_mesa.destroy()
+        messagebox.showinfo("Sucesso", f"Conta da {mesa} encerrada e registrada como PAGA!")
+
+    tk.Button(popup_mesa, text="🖨️ Imprimir Pré-Conta (Para levar à Mesa)", command=executing_impressao_cliente, bg="#6c757d", fg="white", font=("Arial", 10, "bold"), height=1, bd=0).pack(fill="x", padx=20, pady=3)
+    
+    btn_concluir = tk.Button(popup_mesa, text="✅ Receber e Imprimir Fechamento Completo", command=concluir_fechamento_mesa, bg="#198754", fg="white", font=("Arial", 10, "bold"), height=2, bd=0)
+    btn_concluir.pack(fill="x", padx=20, pady=5)
+
+def carregar_pedidos():
+    tabela.delete(*tabela.get_children())
+    if expediente_ativo:
+        cursor.execute("SELECT id, cliente, tipo, total, status, status_pagamento FROM pedidos WHERE expediente=? ORDER BY id DESC", (expediente_ativo,))
+    else:
+        cursor.execute("SELECT id, cliente, tipo, total, status, status_pagamento FROM pedidos ORDER BY id DESC")
+    for p in cursor.fetchall():
+        tabela.insert("", tk.END, iid=p[0], values=p[1:])
+
+def alterar_status():
+    sel = tabela.selection()
+    if not sel: return
+    cursor.execute("UPDATE pedidos SET status=? WHERE id=?", (combo_status.get(), sel[0]))
+    conn.commit()
+    carregar_pedidos()
+
+# ==========================================
+# IMPRESSÃO DA COZINHA (DESTINO CENTRALIZADO E GIGANTE)
+# ==========================================
+def imprimir():
+    if not expediente_ativo or not pedido_atual: 
+        messagebox.showwarning("Aviso", "Não há itens para imprimir ou expediente fechado.")
+        return
+    
+    FONTE_NORMAL = "\x1b\x21\x00"
+    FONTE_GRANDE = "\x1b\x21\x30"  
+    NEGRITO      = "\x1b\x21\x08"
+    CENTRALIZAR  = "\x1b\x61\x01"  
+    ESQUERDA     = "\x1b\x61\x00"  
+    
+    texto = f"{CENTRALIZAR}{NEGRITO}==== VIA DE PRODUCAO / COZINHA ===={FONTE_NORMAL}\n\n"
+    texto += f"{CENTRALIZAR}{FONTE_GRANDE}DESTINO: {combo_tipo.get().upper()}{FONTE_NORMAL}\n\n"
+    texto += f"{ESQUERDA}Hora: {datetime.now().strftime('%H:%M:%S')}\n"
+    texto += "-----------------------------------\n\n"
+    
+    for i in pedido_atual:
+        texto += f"{FONTE_GRANDE}* {i['nome']}{FONTE_NORMAL}\n"  
+        if i["obs"]: 
+            texto += f"   {NEGRITO}Obs: {i['obs']}{FONTE_NORMAL}\n" 
+        texto += "-----------------------------------\n"
+        
+    texto += "\n\n\n\n\n"
+    texto += "\n\n\n\n\n"
+    
+    
+    
+    nome_impressora = "EPSON TM-T20X Receipt"
+    try:
+        p = win32print.OpenPrinter(nome_impressora)
+        try:
+            job = win32print.StartDocPrinter(p, 1, ("Cupom Cozinha", None, "RAW"))
+            win32print.StartPagePrinter(p)
+            win32print.WritePrinter(p, texto.encode('cp850'))
+            win32print.EndPagePrinter(p)
+            win32print.EndDocPrinter(p)
+        finally:
+            win32print.ClosePrinter(p)
+            
+    except Exception as e:
+        messagebox.showerror("Erro de Impressão", f"Falha na impressora: {e}")
+
+# =========================
+# INTERFACE GRÁFICA (GUI PRO)
+# =========================
+janela = tk.Tk()
+janela.title("Los Temperados")
+
+pasta_do_script = os.path.dirname(os.path.abspath(__file__))
+caminho_logo = os.path.join(pasta_do_script, "logo.jpeg")
+if not os.path.exists(caminho_logo):
+    caminho_logo = os.path.join(pasta_do_script, "logo.jpg")
+
+try:
+    if os.path.exists(caminho_logo):
+        img_pil = Image.open(caminho_logo)
+        img_icon = ImageTk.PhotoImage(img_pil)
+        janela.iconphoto(False, img_icon)
+        janela.img_icon_ref = img_icon 
+except Exception as e:
+    print(f"Erro ao carregar imagem: {e}")
+
+janela.geometry("1200x800" if platform.system() == "Windows" else "1200x820")
+janela.configure(bg="#f1f3f5")
+
+style = ttk.Style()
+style.theme_use("clam")
+style.configure("TCombobox", padding=5, background="white")
+style.configure("Treeview", font=("Arial", 9), rowheight=25, background="white")
+style.configure("Treeview.Heading", font=("Arial", 10, "bold"), background="#e9ecef")
+
+# Topo: Painel de Controle de Turno (Expediente)
+frame_exp = tk.Frame(janela, bg="#ffffff", highlightbackground="#dee2e6", highlightthickness=1)
+frame_exp.pack(fill="x", padx=15, pady=8)
+
+tk.Button(frame_exp, text="🟢 Abrir Turno / Caixa", command=iniciar_expediente, font=("Arial", 9, "bold"), bg="#198754", fg="white", bd=0, padx=10, pady=6).pack(side="left", padx=10, pady=6)
+tk.Button(frame_exp, text="🔴 Fechar Turno / Relatório", command=enviar_relatorio_fechamento_caixa, font=("Arial", 9, "bold"), bg="#dc3545", fg="white", bd=0, padx=10, pady=6).pack(side="left", padx=5, pady=6)
+
+lbl_expediente = tk.Label(frame_exp, text="● EXPEDIENTE FECHADO", font=("Arial", 10, "bold"), fg="#dc3545", bg="#ffffff")
+lbl_expediente.pack(side="right", padx=15)
+
+# Topo 2: Atendimento Avançado
+frame_topo = tk.LabelFrame(janela, text=" Atendimento e Identificação ", font=("Arial", 9, "bold"), bg="#ffffff", padx=10, pady=10)
+frame_topo.pack(fill="x", padx=15, pady=5)
+
+tk.Label(frame_topo, text="Nome do Cliente / Mesa:", font=("Arial", 9), bg="#ffffff").grid(row=0, column=0, sticky="w", padx=5)
+entry_cliente = ttk.Entry(frame_topo, font=("Arial", 10), width=28)
+entry_cliente.grid(row=0, column=1, padx=5, pady=5)
+
+tk.Label(frame_topo, text="Local de Entrega:", font=("Arial", 9), bg="#ffffff").grid(row=0, column=2, sticky="w", padx=15)
+combo_tipo = ttk.Combobox(frame_topo, values=["Mesa 1", "Mesa 2", "Mesa 3", "Mesa 4", "Mesa 5", "Viagem", "Balcão"], width=15)
+combo_tipo.grid(row=0, column=3, padx=5, pady=5)
+combo_tipo.current(0)
+
+tk.Label(frame_topo, text="Observação do Item Atual:", font=("Arial", 9), bg="#ffffff").grid(row=0, column=4, sticky="w", padx=15)
+entry_obs = ttk.Entry(frame_topo, font=("Arial", 10), width=32)
+entry_obs.grid(row=0, column=5, padx=5, pady=5)
+
+# Centro do Painel Operacional
+frame_meio = tk.Frame(janela, bg="#f1f3f5")
+frame_meio.pack(fill="both", expand=True, padx=15)
+
+# Coluna 1 - Painel do Cardápio Inteligente
+frame_cardapio = tk.LabelFrame(frame_meio, text=" Seleção do Cardápio ", font=("Arial", 9, "bold"), bg="#ffffff", padx=8, pady=8)
+frame_cardapio.pack(side="left", fill="both", expand=True, padx=5)
+
+entry_busca_cardapio = ttk.Entry(frame_cardapio, font=("Arial", 10))
+entry_busca_cardapio.pack(fill="x", pady=4)
+entry_busca_cardapio.insert(0, " 🔍 Digite para filtrar os produtos...")
+entry_busca_cardapio.bind("<KeyRelease>", filtrar_cardapio)
+entry_busca_cardapio.bind("<FocusIn>", lambda e: entry_busca_cardapio.delete(0, tk.END) if "🔍" in entry_busca_cardapio.get() else None)
+
+frame_split_listas = tk.Frame(frame_cardapio, bg="#ffffff")
+frame_split_listas.pack(fill="both", expand=True, pady=5)
+
+# Lista Categorias Lateral
+frame_cat = tk.Frame(frame_split_listas, bg="#ffffff")
+frame_cat.pack(side="left", fill="y", padx=(0, 6))
+lista_categorias = tk.Listbox(frame_cat, font=("Arial", 9, "bold"), width=18, bg="#f8f9fa", bd=1, relief="solid", selectbackground="#0d6efd", height=7)
+lista_categorias.pack(fill="both", expand=True)
+lista_categorias.bind("<<ListboxSelect>>", on_categoria_selecionada)
+
+# Lista Itens Filtrados
+frame_prod = tk.Frame(frame_split_listas, bg="#ffffff")
+frame_prod.pack(side="left", fill="both", expand=True)
+lista_cardapio = tk.Listbox(frame_prod, font=("Arial", 10), bg="#ffffff", bd=1, relief="solid", selectbackground="#198754", height=7)
+lista_cardapio.pack(fill="both", expand=True)
+
+tk.Button(frame_cardapio, text="➕ Incluir no Pedido", command=adicionar_item, bg="#0d6efd", fg="white", font=("Arial", 10, "bold"), height=2, bd=0).pack(fill="x", pady=2)
+tk.Button(frame_cardapio, text="⚙️ Gerenciar Banco de Itens", command=abrir_editor_cardapio, bg="#6c757d", fg="white", bd=0, height=1).pack(fill="x", pady=2)
+
+# Coluna 2 - Central de Comando do Pedido (Carrinho)
+frame_pedido = tk.LabelFrame(frame_meio, text=" Itens do Pedido Atual (Carrinho) ", font=("Arial", 9, "bold"), bg="#ffffff", padx=8, pady=8)
+frame_pedido.pack(side="left", fill="both", expand=True, padx=5)
+
+lista_pedido = tk.Listbox(frame_pedido, font=("Courier New", 10), bg="#f8f9fa", bd=1, relief="solid", height=7)
+lista_pedido.pack(fill="both", expand=True, pady=4)
+
+label_total = tk.Label(frame_pedido, text="Total Atual: R$ 0.00", font=("Arial", 15, "bold"), fg="#198754", bg="#ffffff", pady=5)
+label_total.pack()
+
+frame_botoes_carrinho = tk.Frame(frame_pedido, bg="#ffffff")
+frame_botoes_carrinho.pack(fill="x")
+
+tk.Button(frame_botoes_carrinho, text="❌ Remover Item", command=remover_item, bg="#dc3545", fg="white", font=("Arial", 9, "bold"), bd=0, pady=5).pack(side="left", fill="x", expand=True, padx=2)
+tk.Button(frame_botoes_carrinho, text="🖨️ Imprimir Cozinha", command=imprimir, bg="#6c757d", fg="white", font=("Arial", 9, "bold"), bd=0, pady=5).pack(side="right", fill="x", expand=True, padx=2)
+
+# Coluna 3 - Caixa Prático Lateral Direito
+frame_caixa_lado = tk.LabelFrame(frame_meio, text=" Ações Rápidas de Faturamento ", font=("Arial", 9, "bold"), bg="#ffffff", padx=10, pady=8, width=220)
+frame_caixa_lado.pack_propagate(False)
+frame_caixa_lado.pack(side="right", fill="both", padx=5)
+
+tk.Button(frame_caixa_lado, text="🚀 FINALIZAR\nPEDIDO", command=abrir_popup_pagamento, bg="#198754", fg="white", font=("Arial", 11, "bold"), bd=0).pack(fill="x", pady=10, ipady=15)
+tk.Button(frame_caixa_lado, text="🤝 RECEBER CONTAS\nDA MESA", command=fechar_comanda, bg="#ffc107", fg="#212529", font=("Arial", 9, "bold"), bd=0).pack(fill="x", pady=5, ipady=10)
+
+# Rodapé: Histórico e Monitor de Comandas (Painel Informativo Ampliado de 18 Linhas)
+frame_status = tk.LabelFrame(janela, text=" Painel Informativo e Monitor do Banco de Dados ", font=("Arial", 9, "bold"), bg="#ffffff", padx=10, pady=5)
+frame_status.pack(fill="both", expand=True, padx=15, pady=10)
+
+frame_acoes_status = tk.Frame(frame_status, bg="#ffffff")
+frame_acoes_status.pack(fill="x", pady=5)
+
+tk.Label(frame_acoes_status, text="Alterar Status do Pedido:", font=("Arial", 9, "bold"), bg="#ffffff").pack(side="left")
+
+combo_status = ttk.Combobox(frame_acoes_status, values=["Preparando", "Pronto", "Entregue"], state="readonly", width=15)
+combo_status.pack(side="left", padx=5)
+combo_status.current(0)
+
+tk.Button(frame_acoes_status, text="🔄 Atualizar Status", command=alterar_status, bg="#0d6efd", fg="white", font=("Arial", 9, "bold"), bd=0, padx=10).pack(side="left")
+
+# Tabela de Histórico
+colunas = ("ID", "Cliente", "Tipo", "Total", "Status", "Pagamento")
+tabela = ttk.Treeview(frame_status, columns=colunas, show="headings", height=18)
+
+for col in colunas:
+    tabela.heading(col, text=col)
+    largura = 220 if col == "Cliente" else 100
+    tabela.column(col, width=largura, anchor="center")
+
+tabela.pack(fill="both", expand=True, pady=5)
+
+scroll_tabela = ttk.Scrollbar(tabela, orient="vertical", command=tabela.yview)
+tabela.configure(yscrollcommand=scroll_tabela.set)
+scroll_tabela.pack(side="right", fill="y")
+
+# =========================
+# INICIALIZAÇÃO DO SISTEMA
+# =========================
+atualizar_cardapio()
+carregar_pedidos()
+
+janela.mainloop()
