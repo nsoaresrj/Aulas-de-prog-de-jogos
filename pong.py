@@ -1,46 +1,113 @@
 from PPlay.window import Window
 from PPlay.sprite import Sprite
 
-#configurações da janela
-janela= Window(800,600,)
-janela.set_title("Meu primeiro pong")
+# --- CONFIGURAÇÃO DA JANELA ---
+janela = Window(700, 500)
+janela.set_title("Pong - Versão Final")
+teclado = janela.get_keyboard() # Prepara a leitura do teclado
 
-#configurações da bolinha
-bolinha = Sprite("bolinha.png") #s
-bolinha.x = (janela.width / 2) - (bolinha.width / 2) #posição vertical da bola
-bolinha.y = (janela.height / 2) - (bolinha.height / 2) #posição horizontal da bola
+# --- VARIÁVEIS DE PLACAR E ESTADO ---
+placar_ia = 0
+placar_jogador = 0
+esperando_espaco = True # Controla se o jogo está pausado aguardando o ESPAÇO
 
-#variaveis da velocidade da bola
-vel_x = 4
-vel_y = 4
+# --- CONFIGURAÇÃO DA BOLINHA ---
+bolinha = Sprite("bolinha.png")
+bolinha.x = (janela.width / 2) - (bolinha.width / 2)
+bolinha.y = (janela.height / 2) - (bolinha.height / 2)
 
-#configurações dos pads
-pad_esq = Sprite("pad(1).png")
-pad_esq.x = 5 # 5 pixels de distancia da borda esquerda
-pad_esq.y = (janela.height / 2) - (pad_esq.height / 2) #deixa o pad centralizado na altura
+vel_bola_x = 350 # Velocidade com delta_time
+vel_bola_y = 350
 
-pad_dir = Sprite("pad(1).png")
-pad_dir.x = janela.width - pad_dir.width - 5 # 5 pixels de distancia da borda esquerda
-pad_dir.y = (janela.height / 2) - (pad_dir.height / 2) #deixa o pad centralizado na altura
+# --- CONFIGURAÇÃO DAS BARRINHAS ---
+vel_barras = 400
+vel_ia = 320 # IA um pouco mais lenta que a bolinha para não ser invencível
 
-#game loop
+# IA (Esquerda)
+barra_ia = Sprite("pad.png")
+barra_ia.x = 10
+barra_ia.y = (janela.height / 2) - (barra_ia.height / 2)
+
+# Jogador (Direita)
+barra_jogador = Sprite("pad.png")
+barra_jogador.x = janela.width - barra_jogador.width - 10
+barra_jogador.y = (janela.height / 2) - (barra_jogador.height / 2)
+
+# --- GAME LOOP ---
 while True:
-    janela.set_background_color("Dark Blue")
-#movimento da bola
-    bolinha.x += vel_x
-    bolinha.y += vel_y
-#colisão com as paredes Horizontais (teto e chão)
-    if bolinha.y <= 0 or bolinha.y >= janela.height - bolinha.height:
-        vel_y *= -1 #inverte a direção
+    janela.set_background_color((0, 0, 139))
+    
+    # === DESENHA O PLACAR ===
+    # Parâmetros: Texto, X, Y, Tamanho, Cor(RGB)
+    texto_placar = str(placar_ia) + " - " + str(placar_jogador)
+    janela.draw_text(texto_placar, (janela.width / 2) - 30, 20, size=40, color=(255, 255, 255))
 
-#colisão com as paredes Verticais (paredes da esquerda e direita)
-    if bolinha.x <= 0 or bolinha.x >= janela.width - bolinha.width:
-        vel_x *= -1.03 #aumenta a velocidade da bola sempre que colide nas paredes 
-        vel_y *= 1.03 #aumenta a velocidade verticalmente para que a bola não va super rapido para 
-                     #os lados e lento para cima
-    #desenha os elementos na tela
-    pad_esq.draw()
-    pad_dir.draw()
+    # === VERIFICA SE ESTÁ ESPERANDO O ESPAÇO ===
+    if esperando_espaco:
+        janela.draw_text("Pressione ESPAÇO para iniciar", (janela.width / 2) - 150, (janela.height / 2) + 50, size=20, color=(255, 255, 0))
+        
+        # Se apertar espaço, o jogo começa
+        if teclado.key_pressed("SPACE"):
+            esperando_espaco = False
+    
+    # === SE NÃO ESTIVER ESPERANDO, O JOGO RODA NORMALMENTE ===
+    else:
+        # 1. Movimentação da Bolinha (com delta_time)
+        bolinha.x += vel_bola_x * janela.delta_time()
+        bolinha.y += vel_bola_y * janela.delta_time()
+
+        # 2. Movimentação do Jogador (Setas)
+        if teclado.key_pressed("UP") and barra_jogador.y > 0:
+            barra_jogador.y -= vel_barras * janela.delta_time()
+        if teclado.key_pressed("DOWN") and barra_jogador.y + barra_jogador.height < janela.height:
+            barra_jogador.y += vel_barras * janela.delta_time()
+
+        # 3. Movimentação da IA "Inteligente" (Segue o eixo Y da bola)
+        meio_bolinha = bolinha.y + (bolinha.height / 2)
+        meio_ia = barra_ia.y + (barra_ia.height / 2)
+        
+        if meio_bolinha < meio_ia and barra_ia.y > 0:
+            barra_ia.y -= vel_ia * janela.delta_time()
+        elif meio_bolinha > meio_ia and barra_ia.y + barra_ia.height < janela.height:
+            barra_ia.y += vel_ia * janela.delta_time()
+
+        # 4. Colisão com Teto e Chão (Proteção contra Glitch)
+        if bolinha.y < 0:
+            bolinha.y = 0
+            vel_bola_y = -vel_bola_y
+        elif bolinha.y + bolinha.height > janela.height:
+            bolinha.y = janela.height - bolinha.height
+            vel_bola_y = -vel_bola_y
+
+        # 5. Colisão com as Barras (Pads)
+        if bolinha.collided(barra_ia):
+            bolinha.x = barra_ia.x + barra_ia.width # Expulsa a bolinha pra direita
+            vel_bola_x = -vel_bola_x
+        elif bolinha.collided(barra_jogador):
+            bolinha.x = barra_jogador.x - bolinha.width # Expulsa a bolinha pra esquerda
+            vel_bola_x = -vel_bola_x
+
+        # 6. GOLS E PONTUAÇÃO (Saiu pela esquerda ou direita)
+        if bolinha.x < 0: # Jogador fez gol
+            placar_jogador += 1
+            esperando_espaco = True # Pausa o jogo
+        elif bolinha.x + bolinha.width > janela.width: # IA fez gol
+            placar_ia += 1
+            esperando_espaco = True # Pausa o jogo
+            
+        # Se houve gol, centraliza a bola imediatamente e reseta a velocidade
+        if esperando_espaco:
+            bolinha.x = (janela.width / 2) - (bolinha.width / 2)
+            bolinha.y = (janela.height / 2) - (bolinha.height / 2)
+            # Para evitar que a bola fique impossível, podemos resetar a velocidade original aqui
+            vel_bola_x = 350 if vel_bola_x > 0 else -350
+            vel_bola_y = 350 if vel_bola_y > 0 else -350
+
+    # === DESENHANDO OS ELEMENTOS ===
+    # Isso fica fora do "else", pois queremos desenhar as barras e a bola mesmo pausados
+    barra_ia.draw()
+    barra_jogador.draw()
     bolinha.draw()
 
     janela.update()
+
