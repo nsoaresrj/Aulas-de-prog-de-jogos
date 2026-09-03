@@ -3,7 +3,7 @@ from PPlay.sprite import Sprite
 
 # --- CONFIGURAÇÃO DA JANELA ---
 janela = Window(700, 500)
-janela.set_title("Pong")
+janela.set_title("Pong - IA Mais Justa")
 teclado = janela.get_keyboard()
 
 # --- VARIÁVEIS DE PLACAR E ESTADO ---
@@ -26,12 +26,12 @@ vel_barras = 400
 vel_ia = 160 
 
 # Jogador (ESQUERDA)
-barra_jogador = Sprite("pad.png")
+barra_jogador = Sprite("pad(1).png")
 barra_jogador.x = 10
 barra_jogador.y = (janela.height / 2) - (barra_jogador.height / 2)
 
 # IA (DIREITA)
-barra_ia = Sprite("pad.png")
+barra_ia = Sprite("pad(1).png")
 barra_ia.x = janela.width - barra_ia.width - 10
 barra_ia.y = (janela.height / 2) - (barra_ia.height / 2)
 
@@ -128,58 +128,6 @@ while True:
     janela.update()
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ==============================================================================================
 # 🎯 POSSÍVEIS PEDIDOS DO PROFESSOR NA PROVA (NÍVEL BÁSICO E INTERMEDIÁRIO)
 # ==============================================================================================
@@ -207,7 +155,7 @@ while True:
 # 5. PONG DE 4 LADOS (BARRAS NO TETO E NO CHÃO)
 # O professor pode pedir: "Adicione uma barra no teto e uma no chão controladas por A e D."
 # Como fazer:
-# - Você precisará de uma imagem de pad "deitada" (horizontal).
+# - Você precisará de uma imagem de pad "deitada" (horizontal). (ex: Sprite("pad_deitado.png"))
 # - Na colisão com o teto/chão, ao invés de rebater sozinho, cheque se bateu na barra nova.
 #
 # 6. MAIS DE UMA BARRA POR JOGADOR (ZAGUEIRO E ATACANTE)
@@ -223,7 +171,7 @@ while True:
 # na região de 1/3 de distancia de cada borda."
 # Como fazer:
 # - No início do arquivo, coloque: `import random`
-# - Crie as variáveis: `barra_fantasma = Sprite("pad.png")`, `tempo_fantasma = 0`, `fantasma_visivel = False`
+# - Crie as variáveis: `barra_fantasma = Sprite("pad(1).png")`, `tempo_fantasma = 0`, `fantasma_visivel = False`
 # - Calcule a "área de 1/3": 
 #     limite_esq = janela.width / 3
 #     limite_dir = (janela.width / 3) * 2
