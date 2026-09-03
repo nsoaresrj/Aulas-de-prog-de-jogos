@@ -3,7 +3,7 @@ from PPlay.sprite import Sprite
 
 # --- CONFIGURAÇÃO DA JANELA ---
 janela = Window(700, 500)
-janela.set_title("Pong - IA Mais Justa")
+janela.set_title("Pong")
 teclado = janela.get_keyboard()
 
 # --- VARIÁVEIS DE PLACAR E ESTADO ---
