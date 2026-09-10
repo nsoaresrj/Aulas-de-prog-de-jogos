@@ -1,124 +1,127 @@
 from PPlay.window import *
+from PPlay.sprite import * # <-- Agora importamos o Sprite para lidar com imagens!
 from PPlay.mouse import *
 from PPlay.keyboard import *
 import sys
 
-# Beleza, primeiro eu crio a janela. Coloquei 800x600, mas como eu vou automatizar a
-# centralização mais pra baixo, eu posso mudar esses números depois e tudo vai continuar no meio.
+# Começamos criando a janela padrão.
 janela = Window(800, 600) 
 janela.set_title("Space Invaders")
 
-# Preciso pegar as instâncias do mouse e teclado pra conseguir ler cliques e a tecla ESC.
 mouse = Window.get_mouse()
 teclado = Window.get_keyboard()
 
-# Variáveis que controlam "onde eu estou" e "como o jogo tá configurado".
-# Eu começo sempre no MENU e a dificuldade padrão que deixei foi FÁCIL.
 estado_atual = "MENU"
 dificuldade_atual = "FÁCIL"
 
-# ================= FUNÇÕES AUXILIARES =================
+# ================= CARREGAMENTO DE IMAGENS (SPRITES) =================
 
-# Criei essa funçãozinha pra não ter que ficar calculando o meio da tela pra cada título.
-def desenhar_texto_centralizado(texto, y, largura_estimada, tamanho, cor=(255, 255, 255)):
-    # Pra centralizar a matemática é simples: pego o meio da tela (width / 2) 
-    # e puxo pra esquerda a metade do tamanho da palavra (largura_estimada / 2).
-    x = (janela.width / 2) - (largura_estimada / 2)
-    # E aí mando o PPlay desenhar nessa posição calculada.
-    janela.draw_text(texto, x, y, size=tamanho, color=cor, font_name="Arial", bold=True)
+# Em vez de repetir a fórmula matemática toda hora, criei essa função auxiliar.
+# Ela carrega a imagem do botão e já calcula o "X" para ele ficar perfeitamente no meio.
+def criar_botao_centralizado(nome_imagem, y):
+    # Carrega a imagem PNG
+    botao = Sprite(nome_imagem)
+    # A mágica do PPlay: o Sprite já sabe a própria largura (botao.width)!
+    # Então a fórmula de centralizar fica super exata e fácil.
+    botao.x = (janela.width / 2) - (botao.width / 2)
+    botao.y = y
+    return botao
 
+# Agora eu crio todos os botões UMA VEZ SÓ aqui no início.
+# Eles ficam guardados na memória, prontos para serem desenhados no loop.
 
-# Essa função é a mais importante. Ela faz 3 coisas de uma vez: 
-# calcula o centro, muda de cor se o mouse passar por cima e me avisa se eu cliquei.
-def botao_centralizado(texto, y, largura, altura, tamanho_fonte):
-    
-    # 1. Faço a mesma continha do título pra descobrir o X perfeito do botão.
-    x = (janela.width / 2) - (largura / 2)
-    
-    # 2. Onde o mouse tá agora na tela?
-    pos_x, pos_y = mouse.get_position()
-    
-    # 3. Crio a "Caixa de Colisão". O mouse tá entre a ponta esquerda e a ponta direita do botão?
-    # E também tá entre a altura de cima e a de baixo? Se sim para os dois, ele tá em cima do botão!
-    mouse_sobre = (x <= pos_x <= x + largura) and (y <= pos_y <= y + altura)
-    
-    # 4. Se o mouse tá em cima, a cor vira Amarelo (255, 255, 0) pra dar aquele efeito legal. Senão, fica Cinza.
-    cor = (255, 255, 0) if mouse_sobre else (200, 200, 200)
-    
-    # 5. Desenho o texto usando a cor que acabei de decidir.
-    janela.draw_text(texto, x, y, size=tamanho_fonte, color=cor, font_name="Arial", bold=True)
-    
-    # 6. Se o mouse tá em cima da palavra E eu apertei o botão esquerdo (1), quer dizer que eu cliquei!
-    if mouse_sobre and mouse.is_button_pressed(1):
-        # Dou um delay de 200 milissegundos. Se eu não fizer isso, o PPlay é tão rápido que vai registrar
-        # uns 10 cliques no mesmo segundo e vai acabar pulando de tela sem querer.
-        janela.delay(200) 
-        return True # Retorna que o botão foi acionado.
-    
-    # Se não cliquei, retorna Falso pra nada acontecer.
-    return False
+# Imagens do Menu Principal
+titulo_principal = criar_botao_centralizado("titulo.png", 80) # Uma imagem bem bonita pro título!
+btn_jogar        = criar_botao_centralizado("jogar.png", 220)
+btn_dificuldade  = criar_botao_centralizado("dificuldade.png", 300)
+btn_ranking      = criar_botao_centralizado("ranking.png", 380)
+btn_sair         = criar_botao_centralizado("sair.png", 460)
+
+# Imagens da tela de Dificuldade
+titulo_dif  = criar_botao_centralizado("titulo_dificuldade.png", 80)
+btn_facil   = criar_botao_centralizado("facil.png", 220)
+btn_medio   = criar_botao_centralizado("medio.png", 300)
+btn_dificil = criar_botao_centralizado("dificil.png", 380)
+btn_voltar  = criar_botao_centralizado("voltar.png", 480)
+
 
 # ================= LOOP PRINCIPAL =================
-# Bora pro loop infinito onde o jogo rola de verdade.
+# Bora pro jogo!
 while True:
-    # A primeira coisa em cada frame é limpar a tela pintando tudo de preto. 
-    # Se não fizer isso, o frame anterior fica manchado na tela.
-    janela.set_background_color((0, 0, 0)) 
+    janela.set_background_color((0, 0, 0)) # Limpa o frame anterior pintando de preto
     
     # ------------------ ESTADO: MENU ------------------
     if estado_atual == "MENU":
-        # Título centralizado no topo (Y=80). Chutei uns 460 pixels de largura pra ele.
-        desenhar_texto_centralizado("SPACE INVADERS", 80, 460, 60)
         
-        # O pulo do gato dessa função que criei: o próprio `if` já desenha o botão e testa o clique.
-        # Se a função retornar True (ou seja, eu cliquei), ele muda o estado do jogo pra "JOGAR".
-        if botao_centralizado("JOGAR", 220, 150, 40, 40):
+        # 1. DESENHAR TUDO: 
+        # Com sprites, eu só chamo o método .draw() e eles aparecem na tela.
+        titulo_principal.draw()
+        btn_jogar.draw()
+        btn_dificuldade.draw()
+        btn_ranking.draw()
+        btn_sair.draw()
+        
+        # 2. VERIFICAR CLIQUES:
+        # Olha como ficou lindo! Não preciso mais de matemática de colisão.
+        # A função mouse.is_over_object() do PPlay checa sozinha se o ponteiro tá em cima da imagem!
+        
+        if mouse.is_over_object(btn_jogar) and mouse.is_button_pressed(1):
             estado_atual = "JOGAR"
+            janela.delay(200) # O velho delay pra não dar "clique duplo" sem querer
             
-        if botao_centralizado("DIFICULDADE", 300, 260, 40, 40):
+        elif mouse.is_over_object(btn_dificuldade) and mouse.is_button_pressed(1):
             estado_atual = "DIFICULDADE"
+            janela.delay(200)
             
-        if botao_centralizado("RANKING", 380, 180, 40, 40):
-            pass # Isso aqui não faz nada por enquanto msm.
+        elif mouse.is_over_object(btn_ranking) and mouse.is_button_pressed(1):
+            pass # Ranking ainda em construção
             
-        if botao_centralizado("SAIR", 460, 100, 40, 40):
-            # Clicou em sair? Fecha a janela e mata o programa.
+        elif mouse.is_over_object(btn_sair) and mouse.is_button_pressed(1):
             janela.close()
             sys.exit()
 
     # ------------------ ESTADO: JOGAR ------------------
     elif estado_atual == "JOGAR":
-        # Entrei no jogo! Como eu queria, esses textos ficam lá no cantinho superior esquerdo (X=10).
-        # Uso o `f-string` (esse f antes das aspas) pra injetar a variável da dificuldade direto no texto.
+        # Aqui faz sentido continuar usando texto simples (draw_text), 
+        # porque são só informações da interface (HUD), não botões interativos.
         janela.draw_text(f"Dificuldade: {dificuldade_atual}", 10, 10, size=20, color=(255, 255, 255), bold=True)
         janela.draw_text("ESC para sair", 10, 35, size=18, color=(200, 200, 200))
         
-        # Fico lendo o teclado. Se eu apertar ESC, eu jogo a variável pro estado "MENU" e volto lá pra tela inicial.
         if teclado.key_pressed("ESC"):
             estado_atual = "MENU"
             janela.delay(200)
 
     # --------------- ESTADO: DIFICULDADE ---------------
     elif estado_atual == "DIFICULDADE":
-        # Desenha o título da tela
-        desenhar_texto_centralizado("DIFICULDADE", 80, 350, 50)
         
-        # Se eu escolher a dificuldade FÁCIL:
-        if botao_centralizado("FÁCIL", 220, 120, 40, 40):
-            dificuldade_atual = "FÁCIL" # 1. Atualizo a minha variável de controle.
-            estado_atual = "JOGAR"      # 2. Já pulo direto pro jogo como a gente planejou!
+        # 1. DESENHAR TUDO:
+        titulo_dif.draw()
+        btn_facil.draw()
+        btn_medio.draw()
+        btn_dificil.draw()
+        btn_voltar.draw()
+        
+        # 2. VERIFICAR CLIQUES:
+        # Mesma lógica. Clicou na imagem do nível, altera a variável e joga pro game loop.
+        
+        if mouse.is_over_object(btn_facil) and mouse.is_button_pressed(1):
+            dificuldade_atual = "FÁCIL"
+            estado_atual = "JOGAR"
+            janela.delay(200)
             
-        if botao_centralizado("MÉDIO", 300, 140, 40, 40):
+        elif mouse.is_over_object(btn_medio) and mouse.is_button_pressed(1):
             dificuldade_atual = "MÉDIO"
             estado_atual = "JOGAR"
+            janela.delay(200)
             
-        if botao_centralizado("DIFÍCIL", 380, 160, 40, 40):
+        elif mouse.is_over_object(btn_dificil) and mouse.is_button_pressed(1):
             dificuldade_atual = "DIFÍCIL"
             estado_atual = "JOGAR"
+            janela.delay(200)
             
-        # O botão voltar eu não pulo pro jogo, só volto pro menu mesmo.
-        if botao_centralizado("VOLTAR", 480, 160, 40, 40):
+        elif mouse.is_over_object(btn_voltar) and mouse.is_button_pressed(1):
             estado_atual = "MENU"
+            janela.delay(200)
 
-    # Depois de toda essa lógica calculada, o PPlay finalmente "cospe" tudo que foi desenhado pra tela!
+    # Cospe os desenhos todos pra tela de uma vez!
     janela.update()
