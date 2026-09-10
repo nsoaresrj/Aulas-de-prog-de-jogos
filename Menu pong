@@ -3,108 +3,122 @@ from PPlay.mouse import *
 from PPlay.keyboard import *
 import sys
 
-# 1. Inicialização da Janela e Inputs do PPlay
-janela = Window(800, 600)
+# Beleza, primeiro eu crio a janela. Coloquei 800x600, mas como eu vou automatizar a
+# centralização mais pra baixo, eu posso mudar esses números depois e tudo vai continuar no meio.
+janela = Window(800, 600) 
 janela.set_title("Space Invaders")
 
+# Preciso pegar as instâncias do mouse e teclado pra conseguir ler cliques e a tecla ESC.
 mouse = Window.get_mouse()
 teclado = Window.get_keyboard()
 
+# Variáveis que controlam "onde eu estou" e "como o jogo tá configurado".
+# Eu começo sempre no MENU e a dificuldade padrão que deixei foi FÁCIL.
 estado_atual = "MENU"
+dificuldade_atual = "FÁCIL"
 
 # ================= FUNÇÕES AUXILIARES =================
-# O PPlay puro não tem "botões de texto" nativos. 
-# Criamos essas funções para saber se o mouse está em cima das coordenadas de um texto.
 
-def area_mouse_sobre(x, y, largura, altura):
-    """Retorna True se o mouse estiver dentro do retângulo especificado"""
+# Criei essa funçãozinha pra não ter que ficar calculando o meio da tela pra cada título.
+def desenhar_texto_centralizado(texto, y, largura_estimada, tamanho, cor=(255, 255, 255)):
+    # Pra centralizar a matemática é simples: pego o meio da tela (width / 2) 
+    # e puxo pra esquerda a metade do tamanho da palavra (largura_estimada / 2).
+    x = (janela.width / 2) - (largura_estimada / 2)
+    # E aí mando o PPlay desenhar nessa posição calculada.
+    janela.draw_text(texto, x, y, size=tamanho, color=cor, font_name="Arial", bold=True)
+
+
+# Essa função é a mais importante. Ela faz 3 coisas de uma vez: 
+# calcula o centro, muda de cor se o mouse passar por cima e me avisa se eu cliquei.
+def botao_centralizado(texto, y, largura, altura, tamanho_fonte):
+    
+    # 1. Faço a mesma continha do título pra descobrir o X perfeito do botão.
+    x = (janela.width / 2) - (largura / 2)
+    
+    # 2. Onde o mouse tá agora na tela?
     pos_x, pos_y = mouse.get_position()
-    return (x <= pos_x <= x + largura) and (y <= pos_y <= y + altura)
-
-def cor_botao(x, y, largura, altura):
-    """Muda a cor do botão para amarelo (efeito Hover) se o mouse passar por cima"""
-    if area_mouse_sobre(x, y, largura, altura):
-        return (255, 255, 0) # Amarelo
-    return (200, 200, 200)   # Cinza Claro
+    
+    # 3. Crio a "Caixa de Colisão". O mouse tá entre a ponta esquerda e a ponta direita do botão?
+    # E também tá entre a altura de cima e a de baixo? Se sim para os dois, ele tá em cima do botão!
+    mouse_sobre = (x <= pos_x <= x + largura) and (y <= pos_y <= y + altura)
+    
+    # 4. Se o mouse tá em cima, a cor vira Amarelo (255, 255, 0) pra dar aquele efeito legal. Senão, fica Cinza.
+    cor = (255, 255, 0) if mouse_sobre else (200, 200, 200)
+    
+    # 5. Desenho o texto usando a cor que acabei de decidir.
+    janela.draw_text(texto, x, y, size=tamanho_fonte, color=cor, font_name="Arial", bold=True)
+    
+    # 6. Se o mouse tá em cima da palavra E eu apertei o botão esquerdo (1), quer dizer que eu cliquei!
+    if mouse_sobre and mouse.is_button_pressed(1):
+        # Dou um delay de 200 milissegundos. Se eu não fizer isso, o PPlay é tão rápido que vai registrar
+        # uns 10 cliques no mesmo segundo e vai acabar pulando de tela sem querer.
+        janela.delay(200) 
+        return True # Retorna que o botão foi acionado.
+    
+    # Se não cliquei, retorna Falso pra nada acontecer.
+    return False
 
 # ================= LOOP PRINCIPAL =================
+# Bora pro loop infinito onde o jogo rola de verdade.
 while True:
-    janela.set_background_color((0, 0, 0)) # Fundo preto
+    # A primeira coisa em cada frame é limpar a tela pintando tudo de preto. 
+    # Se não fizer isso, o frame anterior fica manchado na tela.
+    janela.set_background_color((0, 0, 0)) 
     
     # ------------------ ESTADO: MENU ------------------
     if estado_atual == "MENU":
-        # Título
-        janela.draw_text("SPACE INVADERS", 170, 80, size=60, color=(255, 255, 255), font_name="Arial", bold=True)
+        # Título centralizado no topo (Y=80). Chutei uns 460 pixels de largura pra ele.
+        desenhar_texto_centralizado("SPACE INVADERS", 80, 460, 60)
         
-        # Botão JOGAR
-        cor = cor_botao(330, 220, 150, 40)
-        janela.draw_text("JOGAR", 330, 220, size=40, color=cor, font_name="Arial", bold=True)
-        if area_mouse_sobre(330, 220, 150, 40) and mouse.is_button_pressed(1):
+        # O pulo do gato dessa função que criei: o próprio `if` já desenha o botão e testa o clique.
+        # Se a função retornar True (ou seja, eu cliquei), ele muda o estado do jogo pra "JOGAR".
+        if botao_centralizado("JOGAR", 220, 150, 40, 40):
             estado_atual = "JOGAR"
-            janela.delay(200) # Pequeno atraso para não registrar "clique duplo" sem querer
             
-        # Botão DIFICULDADE
-        cor = cor_botao(280, 300, 260, 40)
-        janela.draw_text("DIFICULDADE", 280, 300, size=40, color=cor, font_name="Arial", bold=True)
-        if area_mouse_sobre(280, 300, 260, 40) and mouse.is_button_pressed(1):
+        if botao_centralizado("DIFICULDADE", 300, 260, 40, 40):
             estado_atual = "DIFICULDADE"
-            janela.delay(200)
             
-        # Botão RANKING
-        cor = cor_botao(310, 380, 180, 40)
-        janela.draw_text("RANKING", 310, 380, size=40, color=cor, font_name="Arial", bold=True)
-        if area_mouse_sobre(310, 380, 180, 40) and mouse.is_button_pressed(1):
-            pass # Não faz nada por enquanto, conforme pedido
+        if botao_centralizado("RANKING", 380, 180, 40, 40):
+            pass # Isso aqui não faz nada por enquanto msm.
             
-        # Botão SAIR
-        cor = cor_botao(350, 460, 100, 40)
-        janela.draw_text("SAIR", 350, 460, size=40, color=cor, font_name="Arial", bold=True)
-        if area_mouse_sobre(350, 460, 100, 40) and mouse.is_button_pressed(1):
+        if botao_centralizado("SAIR", 460, 100, 40, 40):
+            # Clicou em sair? Fecha a janela e mata o programa.
             janela.close()
             sys.exit()
 
     # ------------------ ESTADO: JOGAR ------------------
     elif estado_atual == "JOGAR":
-        janela.draw_text("GAME LOOP VAZIO", 180, 250, size=50, color=(255, 255, 255), bold=True)
-        janela.draw_text("Pressione ESC para voltar ao Menu", 200, 320, size=30, color=(150, 150, 150))
+        # Entrei no jogo! Como eu queria, esses textos ficam lá no cantinho superior esquerdo (X=10).
+        # Uso o `f-string` (esse f antes das aspas) pra injetar a variável da dificuldade direto no texto.
+        janela.draw_text(f"Dificuldade: {dificuldade_atual}", 10, 10, size=20, color=(255, 255, 255), bold=True)
+        janela.draw_text("ESC para sair", 10, 35, size=18, color=(200, 200, 200))
         
-        # Volta ao menu com ESC
+        # Fico lendo o teclado. Se eu apertar ESC, eu jogo a variável pro estado "MENU" e volto lá pra tela inicial.
         if teclado.key_pressed("ESC"):
             estado_atual = "MENU"
             janela.delay(200)
 
     # --------------- ESTADO: DIFICULDADE ---------------
     elif estado_atual == "DIFICULDADE":
-        janela.draw_text("DIFICULDADE", 240, 80, size=50, color=(255, 255, 255), bold=True)
+        # Desenha o título da tela
+        desenhar_texto_centralizado("DIFICULDADE", 80, 350, 50)
         
-        # Fácil
-        cor = cor_botao(340, 220, 120, 40)
-        janela.draw_text("FÁCIL", 340, 220, size=40, color=cor, bold=True)
-        if area_mouse_sobre(340, 220, 120, 40) and mouse.is_button_pressed(1):
-            # Ação de colocar no fácil seria aqui
-            estado_atual = "MENU"
-            janela.delay(200)
+        # Se eu escolher a dificuldade FÁCIL:
+        if botao_centralizado("FÁCIL", 220, 120, 40, 40):
+            dificuldade_atual = "FÁCIL" # 1. Atualizo a minha variável de controle.
+            estado_atual = "JOGAR"      # 2. Já pulo direto pro jogo como a gente planejou!
             
-        # Médio
-        cor = cor_botao(330, 300, 140, 40)
-        janela.draw_text("MÉDIO", 330, 300, size=40, color=cor, bold=True)
-        if area_mouse_sobre(330, 300, 140, 40) and mouse.is_button_pressed(1):
-            estado_atual = "MENU"
-            janela.delay(200)
+        if botao_centralizado("MÉDIO", 300, 140, 40, 40):
+            dificuldade_atual = "MÉDIO"
+            estado_atual = "JOGAR"
             
-        # Difícil
-        cor = cor_botao(320, 380, 160, 40)
-        janela.draw_text("DIFÍCIL", 320, 380, size=40, color=cor, bold=True)
-        if area_mouse_sobre(320, 380, 160, 40) and mouse.is_button_pressed(1):
-            estado_atual = "MENU"
-            janela.delay(200)
+        if botao_centralizado("DIFÍCIL", 380, 160, 40, 40):
+            dificuldade_atual = "DIFÍCIL"
+            estado_atual = "JOGAR"
             
-        # Voltar
-        cor = cor_botao(330, 480, 150, 40)
-        janela.draw_text("VOLTAR", 330, 480, size=40, color=cor, bold=True)
-        if area_mouse_sobre(330, 480, 150, 40) and mouse.is_button_pressed(1):
+        # O botão voltar eu não pulo pro jogo, só volto pro menu mesmo.
+        if botao_centralizado("VOLTAR", 480, 160, 40, 40):
             estado_atual = "MENU"
-            janela.delay(200)
 
-    # Desenha tudo que foi configurado neste frame
+    # Depois de toda essa lógica calculada, o PPlay finalmente "cospe" tudo que foi desenhado pra tela!
     janela.update()
