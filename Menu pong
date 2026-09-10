@@ -1,1 +1,135 @@
+import pygame
+import sys
+
+# 1. Inicialização do Pygame
+pygame.init()
+LARGURA, ALTURA = 800, 600
+tela = pygame.display.set_mode((LARGURA, ALTURA))
+pygame.display.set_caption("Space Invaders")
+
+# 2. Definição de Cores
+PRETO = (0, 0, 0)
+BRANCO = (255, 255, 255)
+CINZA_CLARO = (200, 200, 200)
+CINZA_ESCURO = (100, 100, 100)
+
+# 3. Definição de Fontes
+fonte_padrao = pygame.font.SysFont('arial', 36, bold=True)
+fonte_titulo = pygame.font.SysFont('arial', 60, bold=True)
+
+def desenhar_texto(texto, fonte, cor, superficie, x, y):
+    """Função auxiliar para centralizar e desenhar textos na tela"""
+    obj_texto = fonte.render(texto, True, cor)
+    retangulo_texto = obj_texto.get_rect(center=(x, y))
+    superficie.blit(obj_texto, retangulo_texto)
+
+class Botao:
+    """Classe para gerenciar o visual e o clique dos botões"""
+    def __init__(self, texto, x, y, largura, altura):
+        self.texto = texto
+        # Cria o retângulo centralizado no X e Y passados
+        self.rect = pygame.Rect(x - largura//2, y - altura//2, largura, altura)
+        self.cor_atual = CINZA_CLARO
+
+    def desenhar(self, tela):
+        # Desenha o fundo do botão com bordas arredondadas
+        pygame.draw.rect(tela, self.cor_atual, self.rect, border_radius=10)
+        # Desenha o texto do botão
+        desenhar_texto(self.texto, fonte_padrao, PRETO, tela, self.rect.centerx, self.rect.centery)
+
+    def atualizar(self, pos_mouse):
+        # Efeito de "hover": muda de cor se o mouse estiver em cima
+        if self.rect.collidepoint(pos_mouse):
+            self.cor_atual = CINZA_ESCURO
+        else:
+            self.cor_atual = CINZA_CLARO
+
+    def clicado(self, pos_mouse, evento_clique):
+        # Retorna True apenas se o mouse está no botão e ocorreu o clique
+        return self.rect.collidepoint(pos_mouse) and evento_clique
+
+def main():
+    estado_atual = "MENU"
+    rodando = True
+    
+    # Instanciando os botões da Tela Principal
+    btn_jogar = Botao("JOGAR", LARGURA//2, 220, 300, 60)
+    btn_dificuldade = Botao("DIFICULDADE", LARGURA//2, 310, 300, 60)
+    btn_ranking = Botao("RANKING", LARGURA//2, 400, 300, 60)
+    btn_sair = Botao("SAIR", LARGURA//2, 490, 300, 60)
+    
+    # Instanciando os botões da Tela de Dificuldade
+    btn_facil = Botao("FÁCIL", LARGURA//2, 250, 300, 60)
+    btn_medio = Botao("MÉDIO", LARGURA//2, 350, 300, 60)
+    btn_dificil = Botao("DIFÍCIL", LARGURA//2, 450, 300, 60)
+    btn_voltar = Botao("VOLTAR", LARGURA//2, 550, 300, 60) # Botão extra para não ficar preso na tela
+
+    while rodando:
+        tela.fill(PRETO) # Limpa a tela a cada frame
+        pos_mouse = pygame.mouse.get_pos()
+        clique = False
+        
+        # Loop de Eventos
+        for evento in pygame.event.get():
+            if evento.type == pygame.QUIT:
+                rodando = False
+            
+            # Registra o clique do botão esquerdo do mouse
+            if evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+                clique = True
+                
+            # Registra teclas pressionadas
+            if evento.type == pygame.KEYDOWN:
+                # Se apertar ESC durante o jogo, volta para o menu
+                if evento.key == pygame.K_ESCAPE and estado_atual == "JOGAR":
+                    estado_atual = "MENU"
+                    
+        # ================= LÓGICA DE TELAS =================
+        if estado_atual == "MENU":
+            desenhar_texto("SPACE INVADERS", fonte_titulo, BRANCO, tela, LARGURA//2, 100)
+            
+            botoes_menu = [btn_jogar, btn_dificuldade, btn_ranking, btn_sair]
+            for btn in botoes_menu:
+                btn.atualizar(pos_mouse)
+                btn.desenhar(tela)
+                
+            # Verifica cliques
+            if btn_jogar.clicado(pos_mouse, clique):
+                estado_atual = "JOGAR"
+            elif btn_dificuldade.clicado(pos_mouse, clique):
+                estado_atual = "DIFICULDADE"
+            elif btn_ranking.clicado(pos_mouse, clique):
+                pass # Por enquanto não faz nada
+            elif btn_sair.clicado(pos_mouse, clique):
+                rodando = False
+
+        elif estado_atual == "JOGAR":
+            # Game Loop Vazio
+            desenhar_texto("GAME LOOP VAZIO", fonte_titulo, BRANCO, tela, LARGURA//2, ALTURA//2 - 30)
+            desenhar_texto("Pressione ESC para voltar ao Menu", fonte_padrao, CINZA_CLARO, tela, LARGURA//2, ALTURA//2 + 30)
+
+        elif estado_atual == "DIFICULDADE":
+            desenhar_texto("DIFICULDADE", fonte_titulo, BRANCO, tela, LARGURA//2, 100)
+            
+            botoes_dif = [btn_facil, btn_medio, btn_dificil, btn_voltar]
+            for btn in botoes_dif:
+                btn.atualizar(pos_mouse)
+                btn.desenhar(tela)
+                
+            # Verifica cliques (seleciona a dificuldade e volta ao menu)
+            if btn_facil.clicado(pos_mouse, clique) or btn_medio.clicado(pos_mouse, clique) or btn_dificil.clicado(pos_mouse, clique):
+                # No futuro, você pode atribuir a dificuldade escolhida a uma variável aqui
+                estado_atual = "MENU"
+            elif btn_voltar.clicado(pos_mouse, clique):
+                estado_atual = "MENU"
+                
+        # Atualiza a tela
+        pygame.display.flip()
+
+    # Encerra o jogo
+    pygame.quit()
+    sys.exit()
+
+if __name__ == "__main__":
+    main()
 
