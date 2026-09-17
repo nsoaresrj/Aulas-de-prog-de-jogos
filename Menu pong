@@ -3,6 +3,7 @@ from PPlay.sprite import *
 from PPlay.mouse import *
 from PPlay.keyboard import *
 import sys
+import jogoinvaders
 
 # 1. Configuração da Janela
 janela = Window(800, 600)
@@ -70,12 +71,7 @@ while True:
 
     # ------------------ ESTADO: JOGAR ------------------
     elif estado_atual == "JOGAR":
-        # Textos informativos pequenos no canto superior esquerdo
-        janela.draw_text(f"Dificuldade: {dificuldade_atual}", 10, 10, size=20, color=(255, 255, 255), bold=True)
-        janela.draw_text("ESC para sair", 10, 35, size=18, color=(200, 200, 200))
-        
-        # Volta ao menu
-        if teclado.key_pressed("ESC"):
+        jogoinvaders.executar(janela, teclado, dificuldade_atual)
             estado_atual = "MENU"
             janela.delay(200)
 
