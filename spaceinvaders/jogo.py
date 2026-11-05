@@ -235,7 +235,7 @@ def executar(janela, teclado, dificuldade_inicial):
         cronometro_tiros_monstros += dt
         if monstros_vivos and cronometro_tiros_monstros >= tempo_recarga_atual_monstros:
             atirador = random.choice(monstros_vivos)
-            tiro_m = Sprite("spaceinvaders/sprites/tiro.png")
+            tiro_m = Sprite("spaceinvaders/sprites/tiro_monstro.png")
             tiro_m.x = atirador.x + (atirador.width / 2) - (tiro_m.width / 2)
             tiro_m.y = atirador.y + atirador.height
             tiros_monstros.append(tiro_m)
