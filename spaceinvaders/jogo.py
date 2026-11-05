@@ -187,16 +187,26 @@ def executar(janela, teclado, dificuldade_inicial):
             timer_aviso_bonus = 2.5  # Exibe o bônus na tela por 2.5 segundos
             tempo_fase = 0.0         # Zera o cronômetro para a nova fase
 
+            #Guarda tier atual pra recompensa de vida
+            
+            tier_antigo = indice_tier
+            
             # 2. Progressão de Dificuldade (1 -> 2 -> 3 -> Próxima Dificuldade 1)
             sub_nivel += 1
             if sub_nivel > 3 and indice_tier < 3:
                 indice_tier += 1
                 sub_nivel = 1
+            
+            # 3. Verifica se mudou de tier: ex(Fácil -> Médio),ganha + 1 vida!
+            if indice_tier > tier_antigo:
+                vidas += 1
+                # para criar um lim de vidas apenas usar o comando
+                #vidas = min(vidas, 5) que sera limitada em 5 por exemplo
 
             (nome_dificuldade, velocidade_jogador, tempo_recarga_tiro, 
              vel_monstros_x, base_recarga_monstros, multiplicador_pontos) = configurar_dificuldade(indice_tier, sub_nivel)
             
-            # 3. Reinicia a horda e limpa projéteis antigos da tela
+            # 4. Reinicia a horda e limpa projéteis antigos da tela
             tiros.clear()
             tiros_monstros.clear()
             matriz_monstros, largura_monstro, altura_monstro = criar_matriz(L, C, janela.width)
