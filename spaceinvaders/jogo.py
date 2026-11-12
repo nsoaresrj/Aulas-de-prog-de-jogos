@@ -327,20 +327,27 @@ def executar(janela, teclado, dificuldade_inicial):
                     invencivel = True
                     tempo_invencibilidade = 0.0
 
-        # --- 4.9: Colisão Otimizada (Tiros do Jogador contra os Monstros) ---
-        tiro_colidiu = False
-        for linha in matriz_monstros:
-            for monstro in linha[:]: 
-                if tiro.collided(monstro):
+  # --- 4.9: Colisão Otimizada (Tiros do Jogador contra os Monstros) ---
+        for tiro in tiros[:]:
+            # OTIMIZAÇÃO (Bounding Box)
+            if (tiro.y > max_y or 
+                tiro.y + tiro.height < min_y or 
+                tiro.x + tiro.width < min_x or 
+                tiro.x > max_x):
+                continue
+
+            tiro_colidiu = False
+            for linha in matriz_monstros:
+                for monstro in linha[:]: 
+                    if tiro.collided(monstro):
                         
-                        # [NOVO] Verifica se acertou o Monstro Especial!
+                        # Verifica se acertou o Monstro Especial
                         if monstro == monstro_especial:
-                            qtd_na_linha = len(linha)                      # Conta quantos monstros havia naquela fileira
-                            pontos += qtd_na_linha * multiplicador_pontos  # Ganha pontos por TODOS eles
-                            linha.clear()                                  # Mata a linha inteira de uma vez!
-                            monstro_especial = None                        # Fica None para o Bloco 4.5 sortear o próximo imediatamente
+                            qtd_na_linha = len(linha)
+                            pontos += qtd_na_linha * multiplicador_pontos
+                            linha.clear()
+                            monstro_especial = None
                         else:
-                            # Comportamento normal para monstros comuns
                             linha.remove(monstro) 
                             pontos += multiplicador_pontos
                             
@@ -350,7 +357,6 @@ def executar(janela, teclado, dificuldade_inicial):
                 if tiro_colidiu:
                     tiros.remove(tiro) 
                     break
-
         # =====================================================================
         # BLOCO 5: DESENHO NA TELA (RENDERIZAÇÃO E INTERFACE HUD)
         # =====================================================================
