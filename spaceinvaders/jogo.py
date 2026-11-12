@@ -88,7 +88,7 @@ def configurar_dificuldade(indice_tier, sub_nivel):
 
 
 # =====================================================================
-# BLOCO 3: PREPARAÇÃO DA PARTIDA (VARIÁVEIS INICIAIS)aa
+# BLOCO 3: PREPARAÇÃO DA PARTIDA (VARIÁVEIS INICIAIS)
 # =====================================================================
 def executar(janela, teclado, dificuldade_inicial):
     
@@ -142,7 +142,8 @@ def executar(janela, teclado, dificuldade_inicial):
 
     # [NOVO] Variaveis do Monstro Especial
     monstro_especial = None
-    tempo_piscar_especial = 0.0
+    #tempo_piscar_especial = 0.0
+    vidas_especial = 0
 
 
     # =====================================================================
@@ -165,7 +166,7 @@ def executar(janela, teclado, dificuldade_inicial):
             relogio_fps = 0.0
 
             tempo_fase += dt
-            tempo_piscar_especial += dt # Atualiza o tempo do monstro especial 
+            #tempo_piscar_especial += dt # Atualiza o tempo do monstro especial 
         
         # --- 4.2: Controle de Invencibilidade (Quando o jogador toma dano) ---
         # [COMO ALTERAR]: Mude '2.0' se quiser que o jogador fique invencível por mais ou menos segundos.
@@ -218,14 +219,16 @@ def executar(janela, teclado, dificuldade_inicial):
         # [NOVO] Se ainda não há um monstro especial (início do jogo, nova fase ou o anterior morreu), sorteia outro!
         if (monstro_especial is None or monstro_especial not in monstros_vivos) and len(monstros_vivos) > 0:
             monstro_especial = random.choice(monstros_vivos)
-            
+            vidas_especial = 3
             # Pinta a imagem desse monstro de Vermelho/Laranja automaticamente (sem precisar de outro PNG)
             monstro_especial.image = monstro_especial.image.copy()
-            monstro_especial.image.fill((255, 80, 80), special_flags=3) # 3 = BLEND_RGB_MULT (tinge a cor)
+            monstro_especial.image.fill((80, 255, 80), special_flags=3) # 3 = BLEND_RGB_MULT (tinge a cor)
 
         # Se não há mais nenhum monstro vivo, a fase terminou!
         if len(monstros_vivos) == 0:
+            
             # A) Cálculo do Bônus de Tempo (Quanto menor que 45s for o tempo gasto, maior o bônus)
+            
             fator_dificuldade = indice_tier + 1
             tempo_economizado = max(0.0, 45.0 - tempo_fase)
             ultimo_bonus = max(50, int(tempo_economizado * 20 * fator_dificuldade))
@@ -233,6 +236,8 @@ def executar(janela, teclado, dificuldade_inicial):
             timer_aviso_bonus = 2.5  # Mostra mensagem de bônus por 2.5 segundos
             tempo_fase = 0.0         # Zera o relógio para a nova fase
             monstro_especial = None        # Remove o monstro especial da fase anterior
+            vidas_especial = 0
+            
             # B) Progressão de Nível (Ex: Fácil 1 -> Fácil 2 -> Fácil 3 -> Médio 1)
             tier_antigo = indice_tier
             sub_nivel += 1
@@ -343,16 +348,26 @@ def executar(janela, teclado, dificuldade_inicial):
                         
                         # Verifica se acertou o Monstro Especial
                         if monstro == monstro_especial:
-                            qtd_na_linha = len(linha)
-                            pontos += qtd_na_linha * multiplicador_pontos
-                            linha.clear()
-                            monstro_especial = None
+                            vidas_especial -= 1
+                            
+                            if vidas_especial == 2:
+                                # Toma dano e muda de cor
+                                monstro_especial.image.fill((255, 128, 0), special_flags=3)
+                            elif vidas_especial == 1:
+                                # Toma dano e muda de cor
+                                monstro_especial.image.fill((0, 255, 255), special_flags=3)
+                            elif vidas_especial <= 0:
+                                # Morreu: remove apenas ele e dá pontos bônus
+                                linha.remove(monstro)
+                                pontos += multiplicador_pontos * 5 # Bônus de 5x por matar o Boss
+                                monstro_especial = None
                         else:
                             linha.remove(monstro) 
                             pontos += multiplicador_pontos
-                            
+
+                        #[Avisa que o tiro bateu e para de verificar]
                         tiro_colidiu = True
-                        break 
+                        break
                 
                 if tiro_colidiu:
                     tiros.remove(tiro) 
@@ -374,11 +389,10 @@ def executar(janela, teclado, dificuldade_inicial):
         for linha in matriz_monstros:
             for monstro in linha:
                 # [NOVO] Se for o monstro especial, ele pisca rápidamente (alterna a cada 0.1s)
-                if monstro == monstro_especial:
-                    if int(tempo_piscar_especial * 10) % 2 == 0:
+                #if monstro == monstro_especial:
+                    #if int(tempo_piscar_especial * 10) % 2 == 0:
                         monstro.draw()
-                else:
-                    monstro.draw() # Monstros normais são desenhados sempre
+            monstro.draw() # Monstros normais são desenhados sempre
         
         # --- Textos da Interface (HUD) ---
         # [COMO ALTERAR]: Os parâmetros são (Texto, Posição X, Posição Y, size=Tamanho, color=(R,G,B))
